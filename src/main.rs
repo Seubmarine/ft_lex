@@ -5,12 +5,13 @@ pub mod regex_parser;
 
 use std::{
     env::args,
-    fs::File,
-    io::Read,
+    fs::{self, File},
+    io::{BufWriter, Read, Write},
     str::{self, Chars},
 };
 
 use interpreter::Interpreter;
+use nfa::{Graph, NodeId};
 use parser::Parser;
 use regex_parser::{concatenate, parse_ast};
 
@@ -48,15 +49,11 @@ impl<'a> Iterator for RegexIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((lex_substite, substitute_iterator)) = self.substitutes_stack.last_mut() {
             let substite_c = substitute_iterator.next();
-            if substite_c.is_none() {
-
-            }
+            if substite_c.is_none() {}
         }
-        
+
         let n = self.next();
-        if let Some(c) = n {
-
-        }
+        if let Some(c) = n {}
         n
     }
 }
@@ -177,7 +174,6 @@ impl<'a> LexConfig<'a> {
 }
 
 fn main() -> std::io::Result<()> {
-
     let filename: &str = &args().nth(1).unwrap_or("examples/spec.l".to_string());
     let mut f = File::open(filename)?;
     let mut data = vec![];
@@ -186,17 +182,34 @@ fn main() -> std::io::Result<()> {
 
     let config = LexConfig::new(file_string);
 
+    let mut graph = Graph::new();
+    let begin_node = graph.add_node();
+
     for rule in &config.rules {
         let ast = parse_ast(rule.regex);
         match ast {
             Ok(ast) => {
-                println!("rule named {} got valid AST: {:?}", rule.action, ast);
-                
-            },
+                println!("rule named {} got valid AST: {:?}", rule.regex, ast);
+                println!("");
+                let end_node = ast.ast_connect_graph(&mut graph, begin_node);
+                graph.node_accept(end_node, rule.regex.into());
+            }
             Err(err) => {
-                println!("rule named {} got error at: {}", rule.action, err.begin);
-            },
+                println!("rule named {} got error at: {}", rule.regex, err.begin);
+            }
         }
+    }
+
+    graph.compile();
+
+    let dot_string = graph.dot_string();
+    fs::write("graph.dot", dot_string)?;
+
+    println!("{:?}\n", graph.nodes);
+
+    let mut interpreter = Interpreter::new("hello world if zz", graph);
+    while let Ok(s) = interpreter.run() {
+        println!("string runned: {s}|");
     }
 
     println!("{:?}", config);
@@ -208,7 +221,6 @@ fn main() -> std::io::Result<()> {
     let a1 = graph.add_node();
     let a_recursive = graph.add_node();
     let b1 = graph.add_node();
-
 
     graph.add_edge(a1, a_recursive, nfa::Condition::Single('a'));
     graph.add_edge(a_recursive, a_recursive, nfa::Condition::Single('a'));

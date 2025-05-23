@@ -1,4 +1,3 @@
-
 use crate::nfa::{Condition, Graph};
 use std::str::Chars;
 // To run through a non deterministic graph (nfa) we need to check each actions,
@@ -6,6 +5,7 @@ use std::str::Chars;
 // so we make another "Worker" that will try to run along the different state,
 // the last worker that finished running the graph and that is in a "accept" state, is the response we have to go through
 
+#[derive(Debug, Clone, Copy)]
 struct Worker {
     current_graph_node: usize,
 }
@@ -34,16 +34,56 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    // This advance a worker at the given index, in the graph.
+    // To traverse all possibility (multiple edge can have the same condition in a nfa),
+    // We duplicate the current worker and make them take the other possibilities
+    fn worker_traverse(&mut self, mut worker_index: usize, current_char: char) {
+        let mut edge_index = 0;
+        let mut is_original = true;
+
+        let worker_copy = self.workers[worker_index].clone();
+
+        let edges_count = self.graph.nodes[worker_copy.current_graph_node].edges.len();
+        while edge_index < edges_count {
+            let edge = &self.graph.nodes[worker_copy.current_graph_node].edges[edge_index];
+            if Self::char_match_condition(current_char, &edge.condition) {
+                //Flag to duplicate the original worker if multiple edges are possible
+                if is_original {
+                    is_original = false;
+                } else {
+                    self.workers.push(worker_copy);
+                    worker_index = self.workers.len() - 1;
+                }
+
+                //We advance the worker to it's next position
+                self.workers[worker_index].current_graph_node = edge.node;
+
+                //Epsilon is a special case, it doesn't count as a real move so we need to call this function recursively
+                if edge.condition == Condition::Epsilon {
+                    self.worker_traverse(worker_index, current_char);
+                }
+            }
+            edge_index += 1;
+        }
+
+        //If the condition is still true after checking each edge,
+        //then this worker could not have moved, so we flag it for destruction with usize::MAX
+        if is_original {
+            self.workers[worker_index].current_graph_node = usize::MAX;
+        }
+    }
+
     pub fn run(&mut self) -> Result<String, ()> {
-        
         //Early return if no data to run
-        
+
         //.0 is the index of the accepting state, .1 is the number of character traversed
         let mut accepted_state: Option<(usize, usize)> = None;
         let mut char_traversed_count: usize = 0;
-        
+
         self.workers.clear();
-        self.workers.push(Worker { current_graph_node: 0 });
+        self.workers.push(Worker {
+            current_graph_node: 0,
+        });
         let t = self.input.clone();
         for c in t {
             char_traversed_count += 1;
@@ -51,40 +91,7 @@ impl<'a> Interpreter<'a> {
             // Using while loop with index to push to the vector while iterating
             let workers_length = self.workers.len();
             while worker_i < workers_length {
-                
-                let worker = &self.workers[worker_i];
-
-                let node_current_worker = &self.graph.nodes[worker.current_graph_node];
-                let mut has_moved = false;
-
-                //We separate each edge by matching condition,
-                // [ [Edge {'a', Node0}, Edge{'a', Node1}] , [Edge{'b', Node0}] , [Edge{'c', Node2}, Edge{'c', Node1}] ]
-                let edges_chunked = node_current_worker
-                    .edges
-                    .chunk_by(|a, b| a.condition == b.condition);
-                for edge_chunk in edges_chunked {
-                    //We only need to check condition of the first one, since each edge_chunk are grouped by same condition
-                    let condition = &edge_chunk[0].condition;
-                    if !Self::char_match_condition(c, condition) {
-                        continue;
-                    }
-
-                    let mut edge_iterator = edge_chunk.into_iter();
-                    self.workers[worker_i].current_graph_node = edge_iterator.next().unwrap().node;
-                    has_moved = true;
-                    //If there's other edge with the same condition we create other workers that will take those edge
-                    for remaining_edge in edge_iterator {
-                        self.workers.push(Worker {
-                            current_graph_node: remaining_edge.node,
-                        });
-                    }
-                    break;
-                }
-
-                //If the current worker is stuck we flag it for destruction by setting it's node position to usize::MAX
-                if !has_moved {
-                    self.workers[worker_i].current_graph_node = usize::MAX;
-                }
+                self.worker_traverse(worker_i, c);
                 worker_i += 1;
             }
 
@@ -97,10 +104,7 @@ impl<'a> Interpreter<'a> {
                 if accepting_state.is_err() {
                     continue;
                 }
-
                 accepted_state = Some((accepting_state.unwrap(), char_traversed_count));
-                // let accepting_state = accepting_state.unwrap();
-                // let accepting_state = &self.graph.accept[accepting_state].1;
                 break;
             }
 
@@ -118,13 +122,13 @@ impl<'a> Interpreter<'a> {
         let mut yytext = String::new();
 
         match accepted_state {
-            Some((accept_index,char_count)) => {
+            Some((accept_index, char_count)) => {
                 dbg!(&self.graph.accept[accept_index].1);
                 for _ in 0..char_count {
                     yytext.push(self.input.next().unwrap());
-                } 
+                }
                 Ok(yytext)
-            },
+            }
             None => {
                 if char_traversed_count == 0 {
                     Err(())
@@ -132,9 +136,7 @@ impl<'a> Interpreter<'a> {
                     self.input.next();
                     Ok(yytext)
                 }
-            },
+            }
         }
-
-
     }
 }

@@ -1,5 +1,4 @@
-
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Condition {
     Epsilon,
     Single(char),
@@ -11,8 +10,9 @@ impl Condition {
         match (self, condition) {
             (Condition::Epsilon, Condition::Epsilon) => std::cmp::Ordering::Equal,
             (Condition::Epsilon, Condition::Single(_)) => std::cmp::Ordering::Less,
-            (Condition::Epsilon, Condition::Range(_, _)) => todo!(),
+            (Condition::Epsilon, Condition::Range(_, _)) => std::cmp::Ordering::Less,
             (Condition::Single(_), Condition::Epsilon) => std::cmp::Ordering::Greater,
+            (Condition::Range(_, _), Condition::Epsilon) => std::cmp::Ordering::Greater,
             (Condition::Single(a), Condition::Single(b)) => a.cmp(&b),
             (Condition::Single(c), Condition::Range(a, b)) => {
                 if c < &a {
@@ -23,7 +23,6 @@ impl Condition {
                     std::cmp::Ordering::Equal
                 }
             }
-            (Condition::Range(_, _), Condition::Epsilon) => todo!(),
             (Condition::Range(a, b), Condition::Single(c)) => {
                 if &c < a {
                     std::cmp::Ordering::Less
@@ -33,21 +32,25 @@ impl Condition {
                     std::cmp::Ordering::Equal
                 }
             }
-            (Condition::Range(_, _), Condition::Range(_, _)) => todo!(),
+            (Condition::Range(first_begin, _), Condition::Range(other_begin, _)) => {
+                first_begin.cmp(&other_begin)
+            }
         }
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Edge {
     pub condition: Condition,
     pub node: usize,
 }
 
+#[derive(Debug, Clone)]
 pub struct Node {
     pub edges: Vec<Edge>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Graph {
     pub nodes: Vec<Node>,
     pub accept: Vec<(usize, String)>,
@@ -59,6 +62,13 @@ pub struct NodeId {
 }
 
 impl Graph {
+    pub fn new() -> Self {
+        Self {
+            nodes: vec![],
+            accept: vec![],
+        }
+    }
+
     pub fn add_node(&mut self) -> NodeId {
         self.nodes.push(Node { edges: vec![] });
         let position = self.nodes.len() - 1;
@@ -89,9 +99,51 @@ impl Graph {
     }
 
     pub fn compile(&mut self) {
-        for node in &mut self.nodes {
-            node.edges
-                .sort_by(|edge1, edge2| edge1.condition.cmp(edge2.condition));
+        self.accept
+            .sort_by(|(index_left, _), (index_right, _)| index_left.cmp(index_right));
+    }
+
+    pub fn dot_string(&self) -> String {
+        let mut s = String::new();
+
+        s.push_str("digraph G {\n");
+        s.push_str("    rankdir=LR;\n");
+
+        let accepting_nodes: Vec<String> = self
+            .accept
+            .iter()
+            .map(|(idx, _)| *idx)
+            .map(|n| n.to_string())
+            .collect();
+        let accepting_nodes = accepting_nodes.join(" ");
+        let accepting_nodes = format!("    node [shape=doublecircle]; {};\n", accepting_nodes);
+        s.push_str(&accepting_nodes);
+        s.push_str("    node [shape=circle];");
+        for (node_index, node) in self.nodes.iter().enumerate() {
+            for edge in &node.edges {
+                let edge_contion_str = match edge.condition {
+                    Condition::Epsilon => "ε",
+                    Condition::Single(c) => {
+                        if c == '"' {
+                            "\\\""
+                        } else if c == '\\' {
+                            "\\\\"
+                        } else if c == ' ' {
+                            "\' \'"
+                        } else {
+                            &c.to_string()
+                        }
+                    }
+                    Condition::Range(begin, end) => &format!("{begin}-{end}"),
+                };
+                let line = format!(
+                    "    {} -> {} [label=\"{}\"]\n",
+                    node_index, edge.node, edge_contion_str
+                );
+                s.push_str(&line);
+            }
         }
+        s.push_str("}");
+        s
     }
 }
