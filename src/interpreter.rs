@@ -8,6 +8,7 @@ use std::str::Chars;
 #[derive(Debug, Clone, Copy)]
 struct Worker {
     current_graph_node: usize,
+    has_moved: bool,
 }
 
 pub struct Interpreter<'a> {
@@ -41,7 +42,10 @@ impl<'a> Interpreter<'a> {
         let mut edge_index = 0;
         let mut is_original = true;
 
-        let worker_copy = self.workers[worker_index].clone();
+        let worker_copy = Worker {
+            current_graph_node: self.workers[worker_index].current_graph_node,
+            has_moved: false,
+        };
 
         let edges_count = self.graph.nodes[worker_copy.current_graph_node].edges.len();
         while edge_index < edges_count {
@@ -57,6 +61,7 @@ impl<'a> Interpreter<'a> {
 
                 //We advance the worker to it's next position
                 self.workers[worker_index].current_graph_node = edge.node;
+                self.workers[worker_index].has_moved = edge.condition != Condition::Epsilon;
 
                 //Epsilon is a special case, it doesn't count as a real move so we need to call this function recursively
                 if edge.condition == Condition::Epsilon {
@@ -64,12 +69,6 @@ impl<'a> Interpreter<'a> {
                 }
             }
             edge_index += 1;
-        }
-
-        //If the condition is still true after checking each edge,
-        //then this worker could not have moved, so we flag it for destruction with usize::MAX
-        if is_original {
-            self.workers[worker_index].current_graph_node = usize::MAX;
         }
     }
 
@@ -83,6 +82,7 @@ impl<'a> Interpreter<'a> {
         self.workers.clear();
         self.workers.push(Worker {
             current_graph_node: 0,
+            has_moved: false,
         });
         let t = self.input.clone();
         for c in t {
@@ -109,9 +109,11 @@ impl<'a> Interpreter<'a> {
             }
 
             //We remove all workers that are flaged for destruction
-            self.workers
-                .retain(|worker| worker.current_graph_node != usize::MAX);
+            self.workers.retain(|worker| worker.has_moved);
 
+            for worker in &mut self.workers {
+                worker.has_moved = false;
+            }
             // When no worker is active, we return the last accepted node (first for a given loop) triggered,
             // in practice this will give the largest valid regex output given a graph
             if self.workers.is_empty() {

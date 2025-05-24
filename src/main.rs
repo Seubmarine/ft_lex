@@ -183,7 +183,7 @@ fn main() -> std::io::Result<()> {
     let config = LexConfig::new(file_string);
 
     let mut graph = Graph::new();
-    let begin_node = graph.add_node();
+    let graph_entry = graph.add_node();
 
     for rule in &config.rules {
         let ast = parse_ast(rule.regex);
@@ -191,7 +191,9 @@ fn main() -> std::io::Result<()> {
             Ok(ast) => {
                 println!("rule named {} got valid AST: {:?}", rule.regex, ast);
                 println!("");
-                let end_node = ast.ast_connect_graph(&mut graph, begin_node);
+                let rule_entry = graph.add_node();
+                graph.add_edge(graph_entry, rule_entry, nfa::Condition::Epsilon);
+                let end_node = ast.ast_connect_graph(&mut graph, rule_entry);
                 graph.node_accept(end_node, rule.regex.into());
             }
             Err(err) => {
