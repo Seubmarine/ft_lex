@@ -1,12 +1,15 @@
 use crate::{
+    lex,
     nfa::{Condition, Graph, NodeId},
     parser::{Parser, TakeError},
 };
 
 //This is the fuction used to parse any lex regex expression into a valid AST
-pub fn parse_ast(src: &str) -> Result<Ast, TakeError> {
-    let v: Vec<char> = src.chars().collect();
-    let mut parser = Parser::new(&v);
+pub fn parse_ast(
+    src: &str,
+    name_substitutes_list: &[lex::NameSubstitute<'_>],
+) -> Result<Ast, TakeError> {
+    let mut parser = Parser::new(src, name_substitutes_list);
     let ast = parser.try_parse(concatenate);
     ast.and_then(|mut ast| {
         ast.simplify();
@@ -33,7 +36,7 @@ pub fn char_cmp(c: char) -> impl Fn(&mut Parser) -> Result<char, TakeError> {
             Ok(c)
         } else {
             Err(TakeError {
-                begin: parser.cursor - 1,
+                begin: parser.cursor,
             })
         }
     }
@@ -349,6 +352,61 @@ pub fn char(parser: &mut Parser) -> Result<char, TakeError> {
     })
 }
 
+fn name_substitution(parser: &mut Parser) -> Result<Ast, TakeError> {
+    parser.try_parse(char_cmp('{'))?;
+
+    let mut name_to_find = String::new();
+    while let Ok(char) = parser.take() {
+        if char == '}' {
+            break;
+        }
+        name_to_find.push(char);
+    }
+
+    let name_substitute = parser
+        .name_substitutions
+        .iter()
+        .find(|&ns| ns.name == name_to_find);
+
+    match name_substitute {
+        None => {
+            eprintln!("undefined definition {{{name_to_find}}}");
+            Err(TakeError {
+                begin: parser.cursor,
+            })
+        }
+        Some(name_substitute) => {
+            if parser
+                .name_substitution_stack
+                .iter()
+                .find(|&&previous_ns| previous_ns == name_substitute)
+                .is_some()
+            {
+                eprintln!("recursive definition {{{name_to_find}}}");
+                Err(TakeError {
+                    begin: parser.cursor,
+                })
+            } else {
+                parser.name_substitution_stack.push(name_substitute);
+
+                let previous_src = parser.src;
+                let previous_cursor_position = parser.cursor;
+
+                parser.src = name_substitute.substitutes;
+                parser.cursor = 0;
+                let ast = parser.try_parse(concatenate);
+
+                parser.src = previous_src;
+                parser.cursor = previous_cursor_position;
+
+                parser.name_substitution_stack.pop();
+                let ast = ast?;
+                Ok(Ast::Group(Box::new(ast)))
+            }
+        }
+    }
+}
+
 pub fn concatenate(parser: &mut Parser) -> Result<Ast, TakeError> {
     let mut nodes = vec![];
     while !parser.ended() {
@@ -375,6 +433,11 @@ pub fn concatenate(parser: &mut Parser) -> Result<Ast, TakeError> {
             continue;
         }
 
+        if let Ok(ast) = parser.try_parse(name_substitution) {
+            nodes.push(ast);
+            continue;
+        }
+
         if parser.try_parse(char_cmp('(')).is_ok() {
             let expr = parser.try_parse(concatenate)?;
             parser.try_parse(char_cmp(')'))?;
@@ -382,6 +445,7 @@ pub fn concatenate(parser: &mut Parser) -> Result<Ast, TakeError> {
             continue;
         }
 
+        //TODO: remove clone
         if parser.clone().try_parse(char_cmp(')')).is_ok() {
             break;
         }
