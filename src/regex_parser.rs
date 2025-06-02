@@ -418,17 +418,15 @@ pub fn concatenate(parser: &mut Parser) -> Result<Ast, TakeError> {
         }
 
         if parser.try_parse(char_cmp('*')).is_ok() {
-            let previous = Ast::Concatenate(nodes);
+            let previous = nodes.pop().expect("* should have a token to it's left");
             let previous = Ast::NoneOrMore(Box::new(previous));
-            nodes = vec![];
             nodes.push(previous);
             continue;
         }
 
         if parser.try_parse(char_cmp('+')).is_ok() {
-            let previous = Ast::Concatenate(nodes);
+            let previous = nodes.pop().expect("+ should have a token to it's left");
             let previous = Ast::OneOrMore(Box::new(previous));
-            nodes = vec![];
             nodes.push(previous);
             continue;
         }
