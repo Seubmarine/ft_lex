@@ -7,6 +7,7 @@ use std::{
     env::args,
     fs::{self, File},
     io::{BufWriter, Read, Write},
+    process::Command,
     str::{self, Chars},
 };
 
@@ -178,6 +179,9 @@ fn main() -> std::io::Result<()> {
 
     let dot_string = graph.dot_string();
     fs::write("graph.dot", dot_string)?;
+    Command::new("dot")
+        .args(&["-Tpng", "graph.dot", "-o", "output.png"])
+        .spawn()?;
 
     println!("{:?}\n", graph.nodes);
 
@@ -187,33 +191,5 @@ fn main() -> std::io::Result<()> {
     }
     println!("{:?}", config);
 
-    let mut graph = nfa::Graph {
-        nodes: vec![],
-        accept: vec![],
-    };
-    let a1 = graph.add_node();
-    let a_recursive = graph.add_node();
-    let b1 = graph.add_node();
-
-    graph.add_edge(a1, a_recursive, nfa::Condition::Single('a'));
-    graph.add_edge(a_recursive, a_recursive, nfa::Condition::Single('a'));
-    graph.add_edge(a_recursive, b1, nfa::Condition::Single('b'));
-    graph.node_accept(b1, "a+b".into());
-
-    let number = graph.add_node();
-    graph.add_edge(a1, number, nfa::Condition::Range('0', '9'));
-    graph.add_edge(number, number, nfa::Condition::Range('0', '9'));
-    graph.node_accept(number, "integer".into());
-
-    let point = graph.add_node();
-    graph.add_edge(number, point, nfa::Condition::Single('.'));
-    graph.add_edge(point, point, nfa::Condition::Range('0', '9'));
-    graph.node_accept(point, "float".into());
-
-    graph.compile();
-    let mut interpreter = Interpreter::new("ab   abc42.28b41aab539784", graph);
-    while let Ok(s) = interpreter.run() {
-        println!("string runned: {s}|");
-    }
     Ok(())
 }
