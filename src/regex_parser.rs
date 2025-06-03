@@ -11,10 +11,7 @@ pub fn parse_ast(
 ) -> Result<Ast, TakeError> {
     let mut parser = Parser::new(src, name_substitutes_list);
     let ast = parser.try_parse(concatenate);
-    ast.and_then(|mut ast| {
-        ast.simplify();
-        Ok(ast)
-    })
+    ast
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -189,6 +186,23 @@ pub enum Ast {
     Group(Box<Ast>),
 }
 
+
+#[derive(Debug, Clone)]
+struct Provenance {
+    origin : NodeId,
+    condition : Option<Condition>,
+    other : Option<Box<Provenance>>
+}
+
+impl Provenance  {
+    pub fn connect(self, graph : &mut Graph, connect_to: NodeId, condition : Condition) {
+        graph.add_edge(self.origin, connect_to, condition);
+        if let Some(other) = self.other {
+            other.connect(graph, connect_to, condition);
+        }
+    }
+}
+
 impl Ast {
     pub fn simplify(&mut self) {
         match self {
@@ -217,22 +231,30 @@ impl Ast {
     }
 
     //Return the next node
-    pub fn ast_connect_graph(&self, graph: &mut Graph, begin_node: NodeId) -> NodeId {
+    pub fn ast_connect_graph(
+        &self,
+        graph: &mut Graph,
+        begin_node: NodeId,
+        end_node: Option<NodeId>,
+    ) -> NodeId {
+        // dbg!(self, begin_node, end_node);
+        dbg!(self);
         match self {
             Ast::Concatenate(asts) => {
                 let mut next = begin_node;
-                for ast in asts {
-                    next = ast.ast_connect_graph(graph, next);
+                for ast in &asts[..asts.len() - 1] {
+                    next = ast.ast_connect_graph(graph, next, None);
                 }
+                next = asts[asts.len() - 1].ast_connect_graph(graph, next, end_node);
                 return next;
             }
             Ast::CharLiteral(c) => {
-                let next = graph.add_node();
+                let next = end_node.unwrap_or_else(|| graph.add_node());
                 graph.add_edge(begin_node, next, Condition::Single(*c));
                 return next;
             }
             Ast::Bracket(bracket) => {
-                let end_node = graph.add_node();
+                let end_node = end_node.unwrap_or_else(|| graph.add_node());
                 for inside in &bracket.insides {
                     match inside {
                         BracketInside::Single(c) => {
@@ -254,33 +276,38 @@ impl Ast {
                 return end_node;
             }
             Ast::Or(ast_left, ast_right) => {
-                let node_left = ast_left.ast_connect_graph(graph, begin_node);
-                let node_right = ast_right.ast_connect_graph(graph, begin_node);
-
-                let node_final = graph.add_node();
-                graph.add_edge(node_left, node_final, Condition::Epsilon);
-                graph.add_edge(node_right, node_final, Condition::Epsilon);
-                return node_final;
+                // let node_final = end_node.unwrap_or_else(|| graph.add_node());
+                // let node_final = begin_node;
+                let node_left = ast_left.ast_connect_graph(graph, begin_node, end_node);
+                let _node_right = ast_right.ast_connect_graph(graph, begin_node, Some(node_left));
+                return node_left;
             }
             Ast::OneOrMore(ast) => {
+                // todo!("Ast::OneOrMore");
                 /*
                       |-------|
                 begin-O->node-O-->next
 
                 */
 
-                let next = ast.ast_connect_graph(graph, begin_node);
-                graph.add_edge(next, begin_node, Condition::Epsilon);
-
+                let next = ast.ast_connect_graph(graph, begin_node, None);
+                // graph.add_edge(next, begin_node, Condition::Epsilon);
                 return next;
             }
             Ast::NoneOrMore(ast) => {
-                let next = ast.ast_connect_graph(graph, begin_node);
-                graph.add_edge(next, begin_node, Condition::Epsilon);
+                // let next = ast.ast_connect_graph(graph, begin_node);
+                // graph.add_edge(next, begin_node, Condition::Epsilon);
+                // return begin_node;
+                let node_final = ast.ast_connect_graph(graph, begin_node, Some(begin_node));
+                
+                // ast.ast_connect_graph(graph, begin_node, end_node);
+                // if end_node.is_some() {
+                //     return end_node.unwrap();
+                // }
                 return begin_node;
             }
             Ast::Group(ast) => {
-                return ast.ast_connect_graph(graph, begin_node);
+                return ast.ast_connect_graph(graph, begin_node, end_node);
             }
         };
     }
@@ -456,5 +483,12 @@ pub fn concatenate(parser: &mut Parser) -> Result<Ast, TakeError> {
         let c = parser.try_parse(char)?;
         nodes.push(Ast::CharLiteral(c));
     }
-    Ok(Ast::Concatenate(nodes))
+    if nodes.len() == 1 {
+        let first = nodes.swap_remove(0);
+        drop(nodes);
+        dbg!("nodes length == 1", &first);
+        Ok(first)
+    } else {
+        Ok(Ast::Concatenate(nodes))
+    }
 }

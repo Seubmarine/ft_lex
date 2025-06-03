@@ -147,7 +147,9 @@ pub mod lex {
 }
 
 fn main() -> std::io::Result<()> {
-    let filename: &str = &args().nth(1).unwrap_or("examples/spec.l".to_string());
+    let filename: &str = &args()
+        .nth(1)
+        .unwrap_or("examples/one_or_more.l".to_string());
     let mut f = File::open(filename)?;
     let mut data = vec![];
     f.read_to_end(&mut data)?;
@@ -166,7 +168,7 @@ fn main() -> std::io::Result<()> {
                 println!("");
                 let rule_entry = graph.add_node();
                 graph.add_edge(graph_entry, rule_entry, nfa::Condition::Epsilon);
-                let end_node = ast.ast_connect_graph(&mut graph, rule_entry);
+                let end_node = ast.ast_connect_graph(&mut graph, rule_entry, None);
                 graph.node_accept(end_node, rule.regex.into());
             }
             Err(err) => {
@@ -184,6 +186,7 @@ fn main() -> std::io::Result<()> {
         .spawn()?;
 
     println!("{:?}\n", graph.nodes);
+    dbg!("{:?}\n", graph.nodes.len());
 
     let mut interpreter = Interpreter::new("hello world if 3 == 4.2", graph);
     while let Ok(s) = interpreter.run() {
