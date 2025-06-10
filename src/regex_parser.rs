@@ -1,3 +1,11 @@
+use core::slice;
+use std::{
+    cmp::Ordering,
+    iter,
+    slice::{Iter, IterMut},
+    thread::current,
+};
+
 use crate::{
     lex,
     nfa::{Condition, Graph, NodeId},
@@ -186,20 +194,108 @@ pub enum Ast {
     Group(Box<Ast>),
 }
 
-
-#[derive(Debug, Clone)]
-struct Provenance {
-    origin : NodeId,
-    condition : Option<Condition>,
-    other : Option<Box<Provenance>>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub struct ProvenanceData {
+    origin: NodeId,
+    condition: Option<Condition>,
 }
 
-impl Provenance  {
-    pub fn connect(self, graph : &mut Graph, connect_to: NodeId, condition : Condition) {
-        graph.add_edge(self.origin, connect_to, condition);
-        if let Some(other) = self.other {
-            other.connect(graph, connect_to, condition);
+impl Ord for ProvenanceData {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let c = self.origin.cmp(&other.origin);
+        if c == Ordering::Equal {
+            match (self.condition, other.condition) {
+                (None, None) => return Ordering::Equal,
+                (None, Some(_)) => return Ordering::Less,
+                (Some(_), None) => return Ordering::Greater,
+                (Some(left), Some(right)) => {
+                    return left.cmp(&right);
+                }
+            }
         }
+        c
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Provenance {
+    input: Vec<ProvenanceData>,
+}
+
+impl Provenance {
+    pub fn new(node: NodeId) -> Self {
+        Self {
+            input: vec![ProvenanceData {
+                origin: node,
+                condition: None,
+            }],
+        }
+    }
+}
+
+impl Provenance {
+    pub fn extend(&mut self, other: &Provenance) {
+        self.input.extend(other);
+    }
+
+    const fn as_mut_slice<'a>(&'a mut self) -> &'a mut [ProvenanceData] {
+        self.input.as_mut_slice()
+    }
+
+    const fn as_slice<'a>(&'a self) -> &'a [ProvenanceData] {
+        self.input.as_slice()
+    }
+
+    pub fn advance_to_empty_node(&mut self, graph: &mut Graph) {
+        if !self.as_slice().iter().any(|p| p.condition.is_some()) {
+            return;
+        }
+
+        let node = graph.add_node();
+
+        for p in self.as_mut_slice() {
+            if let Some(condition) = p.condition {
+                graph.add_edge(p.origin, node, condition);
+                p.origin = node;
+                p.condition = None;
+            }
+        }
+    }
+
+    pub fn connect(&mut self, graph: &mut Graph, next_condition: Condition) {
+        self.input.sort();
+        self.input.dedup();
+        for p in self.as_mut_slice() {
+            match p.condition {
+                Some(condition) => {
+                    let next_node = graph.add_node();
+                    graph.add_edge(p.origin, next_node, condition);
+                    p.condition = Some(next_condition);
+                    p.origin = next_node;
+                }
+                None => {
+                    p.condition = Some(next_condition);
+                }
+            }
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a Provenance {
+    type Item = &'a ProvenanceData;
+    type IntoIter = std::slice::Iter<'a, ProvenanceData>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Provenance {
+    type Item = &'a mut ProvenanceData;
+    type IntoIter = std::slice::IterMut<'a, ProvenanceData>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_mut_slice().iter_mut()
     }
 }
 
@@ -231,83 +327,86 @@ impl Ast {
     }
 
     //Return the next node
-    pub fn ast_connect_graph(
-        &self,
-        graph: &mut Graph,
-        begin_node: NodeId,
-        end_node: Option<NodeId>,
-    ) -> NodeId {
-        // dbg!(self, begin_node, end_node);
-        dbg!(self);
+    pub fn ast_connect_graph(&self, graph: &mut Graph, provenance: &mut Provenance) {
         match self {
             Ast::Concatenate(asts) => {
-                let mut next = begin_node;
-                for ast in &asts[..asts.len() - 1] {
-                    next = ast.ast_connect_graph(graph, next, None);
+                for ast in asts {
+                    ast.ast_connect_graph(graph, provenance);
                 }
-                next = asts[asts.len() - 1].ast_connect_graph(graph, next, end_node);
-                return next;
             }
             Ast::CharLiteral(c) => {
-                let next = end_node.unwrap_or_else(|| graph.add_node());
-                graph.add_edge(begin_node, next, Condition::Single(*c));
-                return next;
+                provenance.connect(graph, Condition::Single(*c));
             }
             Ast::Bracket(bracket) => {
-                let end_node = end_node.unwrap_or_else(|| graph.add_node());
-                for inside in &bracket.insides {
-                    match inside {
-                        BracketInside::Single(c) => {
-                            graph.add_edge(begin_node, end_node, Condition::Single(*c));
-                        }
-                        BracketInside::Range(char_begin, char_end) => {
-                            graph.add_edge(
-                                begin_node,
-                                end_node,
-                                Condition::Range(*char_begin, *char_end),
-                            );
-                        }
-                        BracketInside::CharacterClass(character_class) => todo!(),
-                    }
-                }
-                if bracket.is_negative {
-                    return begin_node;
-                }
-                return end_node;
+                todo!();
             }
             Ast::Or(ast_left, ast_right) => {
-                // let node_final = end_node.unwrap_or_else(|| graph.add_node());
-                // let node_final = begin_node;
-                let node_left = ast_left.ast_connect_graph(graph, begin_node, end_node);
-                let _node_right = ast_right.ast_connect_graph(graph, begin_node, Some(node_left));
-                return node_left;
+                let mut p1 = provenance.clone();
+
+                ast_left.ast_connect_graph(graph, &mut p1);
+
+                let p2 = provenance;
+                ast_right.ast_connect_graph(graph, p2);
+
+                p2.extend(&p1);
             }
             Ast::OneOrMore(ast) => {
-                // todo!("Ast::OneOrMore");
-                /*
-                      |-------|
-                begin-O->node-O-->next
+                ast.ast_connect_graph(graph, provenance);
 
-                */
+                provenance.advance_to_empty_node(graph);
+                let current = provenance.clone();
 
-                let next = ast.ast_connect_graph(graph, begin_node, None);
-                // graph.add_edge(next, begin_node, Condition::Epsilon);
-                return next;
+                ast.ast_connect_graph(graph, provenance);
+
+                for p in current.as_slice() {
+                    for end in provenance.as_mut_slice() {
+                        if let Some(end_condition) = end.condition {
+                            graph.add_edge(end.origin, p.origin, end_condition);
+                            end.origin = p.origin;
+                            end.condition = None;
+                        }
+                    }
+                }
+
+                provenance.input.sort();
+                provenance.input.dedup();
             }
             Ast::NoneOrMore(ast) => {
+                provenance.advance_to_empty_node(graph);
+                let current = provenance.clone();
+
+                ast.ast_connect_graph(graph, provenance);
+
+                for p in current.as_slice() {
+                    for end in provenance.as_mut_slice() {
+                        if let Some(end_condition) = end.condition {
+                            graph.add_edge(end.origin, p.origin, end_condition);
+                            end.origin = p.origin;
+                            end.condition = None;
+                        }
+                    }
+                }
+
+                provenance.input.sort();
+                provenance.input.dedup();
+
+                // *provenance = current;
+                // dbg!(&current, &provenance);
                 // let next = ast.ast_connect_graph(graph, begin_node);
                 // graph.add_edge(next, begin_node, Condition::Epsilon);
                 // return begin_node;
-                let node_final = ast.ast_connect_graph(graph, begin_node, Some(begin_node));
-                
+                // let node_final = ast.ast_connect_graph(graph, begin_node, Some(begin_node));
+
                 // ast.ast_connect_graph(graph, begin_node, end_node);
                 // if end_node.is_some() {
                 //     return end_node.unwrap();
                 // }
-                return begin_node;
+                // return begin_node;
             }
             Ast::Group(ast) => {
-                return ast.ast_connect_graph(graph, begin_node, end_node);
+                ast.ast_connect_graph(graph, provenance);
+                // todo!();
+                // return ast.ast_connect_graph(graph, begin_node, end_node);
             }
         };
     }

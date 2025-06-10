@@ -1,42 +1,8 @@
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum Condition {
-    Epsilon,
+    // Epsilon,
     Single(char),
     Range(char, char),
-}
-impl Condition {
-    //TODO:
-    fn cmp(&self, condition: Condition) -> std::cmp::Ordering {
-        match (self, condition) {
-            (Condition::Epsilon, Condition::Epsilon) => std::cmp::Ordering::Equal,
-            (Condition::Epsilon, Condition::Single(_)) => std::cmp::Ordering::Less,
-            (Condition::Epsilon, Condition::Range(_, _)) => std::cmp::Ordering::Less,
-            (Condition::Single(_), Condition::Epsilon) => std::cmp::Ordering::Greater,
-            (Condition::Range(_, _), Condition::Epsilon) => std::cmp::Ordering::Greater,
-            (Condition::Single(a), Condition::Single(b)) => a.cmp(&b),
-            (Condition::Single(c), Condition::Range(a, b)) => {
-                if c < &a {
-                    std::cmp::Ordering::Less
-                } else if c > &b {
-                    std::cmp::Ordering::Greater
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            }
-            (Condition::Range(a, b), Condition::Single(c)) => {
-                if &c < a {
-                    std::cmp::Ordering::Less
-                } else if &c > b {
-                    std::cmp::Ordering::Greater
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            }
-            (Condition::Range(first_begin, _), Condition::Range(other_begin, _)) => {
-                first_begin.cmp(&other_begin)
-            }
-        }
-    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -56,9 +22,9 @@ pub struct Graph {
     pub accept: Vec<(usize, String)>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeId {
-    inner: usize,
+    pub inner: usize,
 }
 
 impl Graph {
@@ -109,20 +75,22 @@ impl Graph {
         s.push_str("digraph G {\n");
         s.push_str("    rankdir=LR;\n");
 
-        let accepting_nodes: Vec<String> = self
-            .accept
-            .iter()
-            .map(|(idx, _)| *idx)
-            .map(|n| n.to_string())
-            .collect();
-        let accepting_nodes = accepting_nodes.join(" ");
-        let accepting_nodes = format!("    node [shape=doublecircle]; {};\n", accepting_nodes);
-        s.push_str(&accepting_nodes);
+        if !&self.accept.is_empty() {
+            let accepting_nodes: Vec<String> = self
+                .accept
+                .iter()
+                .map(|(idx, _)| *idx)
+                .map(|n| n.to_string())
+                .collect();
+            let accepting_nodes = accepting_nodes.join(" ");
+            let accepting_nodes = format!("    node [shape=doublecircle]; {};\n", accepting_nodes);
+            s.push_str(&accepting_nodes);
+        }
         s.push_str("    node [shape=circle];");
         for (node_index, node) in self.nodes.iter().enumerate() {
             for edge in &node.edges {
                 let edge_contion_str = match edge.condition {
-                    Condition::Epsilon => "ε",
+                    // Condition::Epsilon => "ε",
                     Condition::Single(c) => {
                         if c == '"' {
                             "\\\""

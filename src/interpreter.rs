@@ -29,7 +29,7 @@ impl<'a> Interpreter<'a> {
 
     fn char_match_condition(c: char, condition: &Condition) -> bool {
         match condition {
-            Condition::Epsilon => true,
+            // Condition::Epsilon => true,
             Condition::Single(single) => &c == single,
             Condition::Range(begin, end) => begin <= &c && end >= &c,
         }
@@ -61,12 +61,12 @@ impl<'a> Interpreter<'a> {
 
                 //We advance the worker to it's next position
                 self.workers[worker_index].current_graph_node = edge.node;
-                self.workers[worker_index].has_moved = edge.condition != Condition::Epsilon;
+                // self.workers[worker_index].has_moved = edge.condition != Condition::Epsilon;
 
                 //Epsilon is a special case, it doesn't count as a real move so we need to call this function recursively
-                if edge.condition == Condition::Epsilon {
-                    self.worker_traverse(worker_index, current_char);
-                }
+                // if edge.condition == Condition::Epsilon {
+                //     self.worker_traverse(worker_index, current_char);
+                // }
             }
             edge_index += 1;
         }

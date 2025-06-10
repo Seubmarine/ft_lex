@@ -16,6 +16,8 @@ use nfa::{Graph, NodeId};
 use parser::Parser;
 use regex_parser::{concatenate, parse_ast};
 
+use crate::regex_parser::Provenance;
+
 pub mod lex {
 
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -166,10 +168,12 @@ fn main() -> std::io::Result<()> {
             Ok(ast) => {
                 println!("rule named {} got valid AST: {:?}", rule.regex, ast);
                 println!("");
-                let rule_entry = graph.add_node();
-                graph.add_edge(graph_entry, rule_entry, nfa::Condition::Epsilon);
-                let end_node = ast.ast_connect_graph(&mut graph, rule_entry, None);
-                graph.node_accept(end_node, rule.regex.into());
+
+                // let rule_entry = graph.add_node();
+
+                let mut p = Provenance::new(graph_entry);
+                ast.ast_connect_graph(&mut graph, &mut p);
+                p.advance_to_empty_node(&mut graph);
             }
             Err(err) => {
                 println!("rule named {} got error at: {}", rule.regex, err.begin);
@@ -179,20 +183,13 @@ fn main() -> std::io::Result<()> {
 
     graph.compile();
 
+    // dbg!(&graph);
+
     let dot_string = graph.dot_string();
     fs::write("graph.dot", dot_string)?;
     Command::new("dot")
         .args(&["-Tpng", "graph.dot", "-o", "output.png"])
-        .spawn()?;
-
-    println!("{:?}\n", graph.nodes);
-    dbg!("{:?}\n", graph.nodes.len());
-
-    let mut interpreter = Interpreter::new("hello world if 3 == 4.2", graph);
-    while let Ok(s) = interpreter.run() {
-        println!("string runned: {s}|");
-    }
-    println!("{:?}", config);
-
+        .spawn()
+        .unwrap();
     Ok(())
 }
