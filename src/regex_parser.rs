@@ -338,7 +338,20 @@ impl Ast {
                 provenance.connect(graph, Condition::Single(*c));
             }
             Ast::Bracket(bracket) => {
-                todo!();
+                provenance.advance_to_empty_node(graph);
+
+                let mut new_provenance = Provenance { input: vec![] };
+                for b in &bracket.insides {
+                    let mut current_provenance = provenance.clone();
+                    let condition = match b {
+                        BracketInside::Single(c) => Condition::Single(*c),
+                        BracketInside::Range(begin, end) => Condition::Range(*begin, *end),
+                        BracketInside::CharacterClass(character_class) => todo!(),
+                    };
+                    current_provenance.connect(graph, condition);
+                    new_provenance.extend(&current_provenance);
+                }
+                *provenance = new_provenance;
             }
             Ast::Or(ast_left, ast_right) => {
                 let mut p1 = provenance.clone();
