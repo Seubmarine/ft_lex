@@ -174,6 +174,10 @@ fn main() -> std::io::Result<()> {
                 let mut p = Provenance::new(graph_entry);
                 ast.ast_connect_graph(&mut graph, &mut p);
                 p.advance_to_empty_node(&mut graph);
+
+                for data in p.as_slice() {
+                    graph.node_accept(data.get_origin(), rule.regex.into());
+                }
             }
             Err(err) => {
                 println!("rule named {} got error at: {}", rule.regex, err.begin);

@@ -200,6 +200,12 @@ pub struct ProvenanceData {
     condition: Option<Condition>,
 }
 
+impl ProvenanceData {
+    pub fn get_origin(&self) -> NodeId {
+        return self.origin;
+    }
+}
+
 impl Ord for ProvenanceData {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         let c = self.origin.cmp(&other.origin);
@@ -238,11 +244,11 @@ impl Provenance {
         self.input.extend(other);
     }
 
-    const fn as_mut_slice<'a>(&'a mut self) -> &'a mut [ProvenanceData] {
+    pub const fn as_mut_slice<'a>(&'a mut self) -> &'a mut [ProvenanceData] {
         self.input.as_mut_slice()
     }
 
-    const fn as_slice<'a>(&'a self) -> &'a [ProvenanceData] {
+    pub const fn as_slice<'a>(&'a self) -> &'a [ProvenanceData] {
         self.input.as_slice()
     }
 
